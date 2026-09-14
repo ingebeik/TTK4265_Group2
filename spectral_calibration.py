@@ -43,10 +43,8 @@ CALIBRATION_POINTS = [
 POLYNOMIAL_DEGREES = [1, 2, 3]
 
 
-#Disse er tatt fra forelesnoig, vet ikke om de faktisk er riktige. brukes til å beregne teoretisk fwhm
-
 SLIT_WIDTH_M = 25e-6
-COLLIMATOR_FOCAL_LENGTH_M = 42e-3
+COLLIMATOR_FOCAL_LENGTH_M = 30e-3
 GRATING_GROOVE_DENSITY_PER_M = 600e3
 GRATING_INCIDENCE_ANGLE_DEG = 0
 
