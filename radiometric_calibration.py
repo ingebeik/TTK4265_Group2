@@ -41,12 +41,7 @@ def load_image(path):
 
 
 def load_image_stack(prefix, exposure_ms):
-    """
-    Load the ten R or D images for one exposure time.
-
-    For example, prefix='R' and exposure_ms=300 loads
-    R300.1.png through R300.10.png.
-    """
+    """  Load the ten R or D images for one exposure time """
 
     paths = [
         IMAGE_DIR / f"{prefix}{exposure_ms}.{index}.png"
@@ -254,12 +249,7 @@ def process_exposure(exposure_ms):
 
 
 def show_radiometric_image_for_roi(results):
-    """
-    Show the mean 300 ms dark-corrected image.
-
-    This is a diagnostic figure used to select the illuminated
-    calibration-screen region. It is not saved as a report figure.
-    """
+    """  Show the mean 300 ms dark-corrected image """
 
     exposure_ms = 300
 
