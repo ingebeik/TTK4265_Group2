@@ -31,12 +31,13 @@ PEAK_PROMINENCE = {
 }
 
 CALIBRATION_POINTS = [
-    #spectral pixel, reference wavelength, tatt fra forelesnignslides, men hva med CO2?"
     ("Mercury", 267, 404.7),
     ("Mercury", 351, 435.8),
     ("Mercury", 650, 546.1),
-    ("Mercury", 737, 578.02),
+    ("Mercury", 737, 578.02),  #Unresolved Hg doublet!!
     ("Argon", 1066, 696.54),
+    ("Argon", 1094, 706.72),
+    ("Argon", 1185, 738.40)
 ]
 
 POLYNOMIAL_DEGREES = [1, 2, 3]
@@ -683,6 +684,127 @@ def plot_empirical_fwhm(fwhm_results):
 
     return fig
 
+def plot_calibrated_lamp_spectra(
+    profiles,
+    wavelength_models
+):
+    """
+    Plot the lamp spectra against the calibrated wavelength axis """
+
+    wavelength_model = wavelength_models[
+        SELECTED_POLYNOMIAL_DEGREE]["model"]
+
+    number_of_pixels = next(iter(profiles.values())).size
+    spectral_pixels = np.arange(number_of_pixels)
+    wavelengths_nm = wavelength_model(spectral_pixels)
+
+    display_range = (
+        (wavelengths_nm >= 400)
+        & (wavelengths_nm <= 710)
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(13, 6),
+        constrained_layout=True
+    )
+
+    lamp_colours = {
+        "Argon": "tab:blue",
+        "Mercury": "tab:orange",
+        "CO2": "tab:green",
+    }
+
+    for name, profile in profiles.items():
+        positive_profile = np.maximum(profile, 0)
+
+        maximum = np.max(
+            positive_profile[display_range]
+        )
+
+        if maximum <= 0:
+            continue
+
+        normalized_profile = (
+            positive_profile / maximum
+        )
+
+        ax.plot(
+            wavelengths_nm[display_range],
+            normalized_profile[display_range],
+            color=lamp_colours[name],
+            linewidth=1.1,
+            label=name
+        )
+
+    reference_lines = [
+        ("Hg 404.7 nm", 404.7),
+        ("Hg 435.8 nm", 435.8),
+        ("Hg 546.1 nm", 546.1),
+        ("Hg 577/579 nm", 578.02),
+        ("Ar 696.5 nm", 696.54),
+        ("Ar 706.7 nm", 706.72),
+    ]
+
+    for label, wavelength_nm in reference_lines:
+        ax.axvline(
+            wavelength_nm,
+            color="0.25",
+            linestyle="--",
+            linewidth=1.2,
+            alpha=0.85,
+            zorder=1
+        )
+
+        ax.text(
+            wavelength_nm,
+            1.02,
+            label,
+            transform=ax.get_xaxis_transform(),
+            rotation=90,
+            ha="left",
+            va="bottom",
+            fontsize=8,
+            color="0.20",
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.75,
+                "pad": 1
+            }
+        )
+
+    ax.set_xlim(400, 710)
+    ax.set_ylim(0, 1.18)
+
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Normalized intensity [a.u.]")
+    ax.set_title(
+        "Calibrated spectra of Hg, Ar and CO$_2$ lamps"
+    )
+
+    ax.grid(
+        color="0.85",
+        linewidth=0.7,
+        alpha=0.7
+    )
+
+    ax.legend(
+        loc="upper right",
+        frameon=True
+    )
+
+    output_path = (
+        RESULT_DIR / "calibrated_lamp_spectra.png"
+    )
+
+    fig.savefig(
+        output_path,
+        dpi=200,
+        bbox_inches="tight"
+    )
+
+    return fig
+
 def main():
     RESULT_DIR.mkdir(parents=True, exist_ok = True)
     mean_dark, dark_paths = load_mean_dark_image(
@@ -747,6 +869,8 @@ def main():
 
     fwhm_results = measure_empirical_fwhm(corrected_images,wavelength_models)
     plot_empirical_fwhm(fwhm_results)
+
+    plot_calibrated_lamp_spectra(profiles,wavelength_models)
 
     print(f"\nFigures saved in: {RESULT_DIR}")
     plt.show()
