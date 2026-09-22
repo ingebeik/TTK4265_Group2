@@ -114,6 +114,42 @@ def main():
     print(f"Illuminated band: rows {r0}..{r1 - 1}, centre row {CENTRE_ROW}")
 
     # --------------------------------------------------------
+    # Raw radiometric calibration frame (mean, dark-corrected, one
+    # exposure) -- for visually inspecting vignetting and dust stripes
+    # on the slit, cf. the intro text of assignment section 3.2.2.
+    # --------------------------------------------------------
+    e_show = exposures[1]
+    fig, ax = plt.subplots(figsize=(9, 5), constrained_layout=True)
+    display = np.clip(S_mean[e_show], 0, None)
+    image = ax.imshow(display, aspect="auto", cmap="inferno",
+                      vmin=0, vmax=np.nanpercentile(display[r0:r1], 99.5),
+                      extent=[wl[0], wl[-1], S_mean[e_show].shape[0], 0])
+    fig.colorbar(image, label="Dark-corrected signal [counts/s]")
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Spatial axis [row]")
+    ax.set_title(f"Mean dark-corrected radiometric calibration frame, {e_show} ms")
+    fig.savefig(RESULT_DIR / "raw_calibration_frame.png", dpi=120)
+
+    # --------------------------------------------------------
+    # Relative radiometric response: each column (wavelength) normalised
+    # by its own row-mean. This removes the strong spectral (column-to-
+    # column) shape and leaves only the spatial (row-to-row) structure,
+    # which is the cleanest way to spot vignetting and dust stripes.
+    # --------------------------------------------------------
+    column_mean = np.nanmean(S_mean[e_show][r0:r1], axis=0)
+    relative_response = S_mean[e_show] / column_mean[None, :]
+    fig, ax = plt.subplots(figsize=(9, 5), constrained_layout=True)
+    image = ax.imshow(relative_response[r0:r1], aspect="auto", cmap="RdBu_r",
+                      vmin=0.85, vmax=1.15,
+                      extent=[wl[0], wl[-1], r1, r0])
+    fig.colorbar(image, label="Signal / column mean")
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Spatial axis [row]")
+    ax.set_title(f"Relative radiometric response, {e_show} ms "
+                 "(reveals vignetting and dust stripes)")
+    fig.savefig(RESULT_DIR / "relative_response_map.png", dpi=120)
+
+    # --------------------------------------------------------
     # K = L / S
     # --------------------------------------------------------
     K = {}
@@ -180,6 +216,31 @@ def main():
         ax.legend()
     axes[1].set_xlabel("Wavelength [nm]")
     fig.savefig(RESULT_DIR / "K_uncertainty.png", dpi=120)
+
+    # Second version: centre line vs a spatially-averaged ("mean of
+    # columns") line, since the target is spatially uniform. This is
+    # smoother and shows the wavelength-dependent trend more clearly.
+    fig, ax = plt.subplots(figsize=(10, 4.5), constrained_layout=True)
+    print("\nUncertainty, centre row vs mean-of-columns (400 ms):")
+    e = exposures[-1]
+    K_centre = L[None, :] / frames[e][:, CENTRE_ROW, :]
+    K_centre_ref = np.nanmean(K_centre, axis=0)
+    u_centre = (K_centre[0] - K_centre_ref) / K_centre_ref * 100
+
+    K_band = L[None, :] / np.nanmean(frames[e][:, r0:r1, :], axis=1)   # (N, cols)
+    K_band_ref = np.nanmean(K_band, axis=0)
+    u_band = (K_band[0] - K_band_ref) / K_band_ref * 100
+
+    ax.plot(wl, u_centre, lw=0.8, label="Centre row")
+    ax.plot(wl, u_band, lw=1.4, color="k", label=f"Mean of rows {r0}-{r1 - 1}")
+    ax.axhline(0, color="k", lw=0.5)
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Relative deviation [%]")
+    ax.set_title(f"K uncertainty at {e} ms: centre row vs spatial mean (reference = mean of 10 frames)")
+    ax.legend()
+    fig.savefig(RESULT_DIR / "K_uncertainty_centre_vs_band.png", dpi=120)
+    print(f"  centre row rms: {np.sqrt(np.nanmean(u_centre ** 2)):.2f} %, "
+          f"mean-of-rows rms: {np.sqrt(np.nanmean(u_band ** 2)):.2f} %")
 
     e = exposures[1]
     K_frames_2d = L[None, None, :] / frames[e]
