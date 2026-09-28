@@ -34,11 +34,11 @@ CALIBRATION_POINTS = [
     ("Mercury", 267, 404.7),
     ("Mercury", 351, 435.8),
     ("Mercury", 650, 546.1),
-    ("Mercury", 737, 578.02),  #Unresolved Hg doublet!!
     ("Argon", 1066, 696.54),
     ("Argon", 1094, 706.72),
-    ("Argon", 1185, 738.40)
 ]
+HG_DOUBLET_VALIDATION_PIXEL = 737
+HG_DOUBLET_REFERENCE_NM = (576.96 + 579.07) / 2
 
 POLYNOMIAL_DEGREES = [1, 2, 3]
 
@@ -83,6 +83,7 @@ def load_image(path):
             f"but {path.name} has shape {image.shape}"
         )
     return image
+
 def load_mean_dark_image(exposure_ms):
     """ Load and average all dark images with requested exposure rate"""
 
@@ -109,20 +110,7 @@ def extract_centre_profile(image, centre_row = CENTRE_ROW, half_width = PROFILE_
     #collapse spatial dir, leaving only the spectral axis
     profile = np.median(centre_region, axis=0)
     return profile
-def print_img_info(name, raw_image, corrected_image):
-    saturated_pixels = np.count_nonzero(raw_image >= SATURATION_VALUE)
-    saturated_percentage = 100*saturated_pixels/raw_image.size
-
-    print(f"\n{name}")
-    print("-" * len(name))
-    print(f"Image shape: {raw_image.shape}")
-    print(f"Raw minimum: {raw_image.min():.1f}")
-    print(f"Raw maximum: {raw_image.max():.1f}")
-    print(f"Raw median: {np.median(raw_image):.1f}")
-    print(f"Corrected minimum: {corrected_image.min():.1f}")
-    print(f"Corrected maximum: {corrected_image.max():.1f}")
-    print(f"Saturated pixels: {saturated_pixels}")
-    print(f"Saturated percentage: {saturated_percentage:.6f} %")
+    
 
 def plot_corrected_images(corrected_images):
     fig,axes = plt.subplots(
@@ -143,8 +131,6 @@ def plot_corrected_images(corrected_images):
         ax.set_title(f"{name}, dark-corrected, {EXPOSURE_MS} ms")
         ax.set_xlabel("Spectral pixel")
         ax.set_ylabel("Spatial pixel")
-        ax.legend(loc="upper right")
-
         fig.colorbar(
             shown_image,
             ax=ax,
@@ -177,24 +163,13 @@ def plot_centre_profiles(profiles):
     return fig
 
 def normalize_for_combination(image):
-    """
-    Normalize one dark-corrected image for the combined display.
 
-    Each lamp is normalized independently because CO2 is much weaker
-    than Hg and Ar. The resulting image shows spectral-line positions,
-    but not the true relative intensity between the lamps.
-    """
     positive_image = np.maximum(image, 0)
 
     scale = np.percentile(
         positive_image,
         99.9
     )
-
-    if scale <= 0:
-        raise ValueError(
-            "Cannot normalize an image without positive signal"
-        )
 
     return positive_image / scale
 
@@ -250,73 +225,133 @@ def plot_combined_image(corrected_images):
 
     return fig
 
-def detect_peaks_in_profiles(profiles):
-    """ Detect candidate peaks and show their spectral pixels """
-    fig, axes = plt.subplots(
-        nrows=3,
-        ncols=1,
-        figsize=(16, 12),
-        sharex=True,
+def plot_selected_emission_lines(profiles):
+    """Plot Hg and Ar spectra and mark calibration and validation lines"""
+
+    fig, ax = plt.subplots(
+        figsize=(14, 7),
         constrained_layout=True
     )
 
-    detected_peaks = {}
+    colours = {
+        "Mercury": "tab:orange",
+        "Argon": "tab:blue",
+    }
 
-    for ax, (name, profile) in zip(
-        axes,
-        profiles.items()
-    ):
-        peaks, properties = find_peaks(
-            profile,
-            prominence=PEAK_PROMINENCE[name],
-            distance=8,
-            width=2
-        )
+    symbols = {
+        "Mercury": "Hg",
+        "Argon": "Ar",
+    }
 
-        detected_peaks[name] = peaks
-        spectral_pixels = np.arange(profile.size)
+    spectral_pixels = np.arange(
+        profiles["Mercury"].size
+    )
 
+    # Plot only Mercury and Argon.
+    for lamp in ["Mercury", "Argon"]:
         ax.plot(
             spectral_pixels,
-            profile,
-            linewidth=0.8,
-            label="Measured profile"
+            profiles[lamp],
+            color=colours[lamp],
+            linewidth=1.0,
+            label=lamp
         )
+    for lamp, pixel, wavelength_nm in CALIBRATION_POINTS:
+        intensity = profiles[lamp][pixel]
 
         ax.scatter(
-            peaks,
-            profile[peaks],
-            color="red",
-            marker="x",
-            s=45,
-            label="Detected candidate"
+            pixel,
+            intensity,
+            color=colours[lamp],
+            edgecolor="black",
+            s=55,
+            zorder=3
         )
 
-        for peak in peaks:
-            ax.annotate(
-                str(peak),
-                xy=(peak, profile[peak]),
-                xytext=(0, 7),
-                textcoords="offset points",
-                ha="center",
-                fontsize=7,
-                rotation=90
-            )
+        ax.axvline(
+            pixel,
+            color=colours[lamp],
+            linestyle="--",
+            linewidth=0.9,
+            alpha=0.5
+        )
 
-        ax.set_title(f"{name}: detected candidate peaks")
-        ax.set_ylabel("Dark-corrected counts")
-        ax.grid(alpha=0.25)
-        ax.legend()
+        label = (
+            f"{symbols[lamp]} "
+            f"{wavelength_nm:.2f} nm\n"
+            f"pixel {pixel}"
+        )
 
-        print(f"\n{name}")
-        print(f"Detected peaks: {peaks.tolist()}")
+        ax.annotate(
+            label,
+            xy=(pixel, intensity),
+            xytext=(0, 10),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            rotation=0
+        )
 
-    axes[-1].set_xlabel("Spectral pixel")
+    validation_intensity = profiles["Mercury"][
+        HG_DOUBLET_VALIDATION_PIXEL
+    ]
+    ax.scatter(
+        HG_DOUBLET_VALIDATION_PIXEL,
+        validation_intensity,
+        marker="X",
+        color="black",
+        s=75,
+        zorder=4,
+        label="Hg doublet (only validation)"
+    )
+    ax.annotate(
+        (
+            f"Hg doublet ~{HG_DOUBLET_REFERENCE_NM:.2f} nm\n"
+            f"pixel {HG_DOUBLET_VALIDATION_PIXEL}"
+        ),
+        xy=(HG_DOUBLET_VALIDATION_PIXEL, validation_intensity),
+        xytext=(0, 10),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontsize=11,
+        rotation=0
+    )
 
-    output_path = RESULT_DIR / "detected_spectral_peaks.png"
-    fig.savefig(output_path, dpi=200)
+    selected_pixels = [
+        pixel
+        for lamp, pixel, wavelength_nm
+        in CALIBRATION_POINTS
+    ]
+    selected_pixels.append(HG_DOUBLET_VALIDATION_PIXEL)
 
-    return fig, detected_peaks
+    ax.set_xlim(
+        min(selected_pixels) - 50,
+        max(selected_pixels) + 50
+    )
+
+    ax.set_xlabel("Spectral pixel")
+    ax.set_ylabel("Dark-corrected counts")
+    ax.set_title(
+        "Hg and Ar lines used for wavelength calibration"
+    )
+
+    ax.grid(alpha=0.25)
+    ax.legend()
+
+    output_path = (
+        RESULT_DIR /
+        "selected_emission_lines.png"
+    )
+
+    fig.savefig(
+        output_path,
+        dpi=200,
+        bbox_inches="tight"
+    )
+
+    return fig
 
 def fit_wavelength_models(calibration_points):
     """ Fit polynomial models mapping spectral pixel to wavelength  """
@@ -331,10 +366,6 @@ def fit_wavelength_models(calibration_points):
     )
 
     models = {}
-
-    print("\nWavelength calibration")
-    print("======================")
-    print("\nCalibration points:")
 
     for lamp, pixel, wavelength in calibration_points:
         print(
@@ -384,7 +415,6 @@ def plot_wavelength_models(
     wavelengths,
     models
 ):
-    """ Plot the calibration points and fitted wavelength models"""
     fig, ax = plt.subplots(
         figsize=(10, 7),
         constrained_layout=True
@@ -396,7 +426,6 @@ def plot_wavelength_models(
         "CO2": "green",
     }
 
-    #Plot each calibration point
     for lamp, pixel, wavelength in calibration_points:
         ax.scatter(
             pixel,
@@ -411,7 +440,7 @@ def plot_wavelength_models(
             xy=(pixel, wavelength),
             xytext=(5, 5),
             textcoords="offset points",
-            fontsize=8
+            fontsize=11
         )
 
     pixel_range = np.linspace(
@@ -474,9 +503,27 @@ def plot_calibration_rmse(models):
     fig.savefig(output_path, dpi=200)
 
     return fig
+
+
+def validate_hg_doublet(wavelength_models):
+    """Evaluate the fitted models at the excluded Hg doublet."""
+
+    validation_results = {}
+
+    for degree, result in wavelength_models.items():
+        predicted_nm = float(
+            result["model"](HG_DOUBLET_VALIDATION_PIXEL)
+        )
+        error_nm = predicted_nm - HG_DOUBLET_REFERENCE_NM
+
+        validation_results[degree] = {
+            "predicted_nm": predicted_nm,
+            "error_nm": error_nm,
+        }
+
+
+    return validation_results
 def calculate_theoretical_fwhm(order):
-    """Calculate theoretical slit-limited spectral FWHM.
-    FWHM = groove_spacing* cos(alpha)*slit_width/(order*collimator_focal_length)"""
 
     groove_spacing_m = (
         1.0 / GRATING_GROOVE_DENSITY_PER_M
@@ -508,8 +555,7 @@ def measure_fwhm_at_row(
     wavelength_model,
     search_half_width=FWHM_SEARCH_HALF_WIDTH
 ):
-    """ Measure the FWHM of one isolated spectral line at one spatial row """
-    
+
     left_index = max(
         0,
         approximate_pixel - search_half_width
@@ -593,14 +639,11 @@ def measure_empirical_fwhm(
     corrected_images,
     wavelength_models
 ):
-    """ Measure selected spectralline widths along the spatial axis"""
 
     wavelength_model = wavelength_models[SELECTED_POLYNOMIAL_DEGREE]["model"]
 
     results = {}
 
-    print("\nEmpirical FWHM")
-    print(" ")
 
     for line in FWHM_LINES:
         lamp = line["lamp"]
@@ -639,18 +682,10 @@ def measure_empirical_fwhm(
             np.isfinite(fwhm_values)
         ]
 
-        print(
-            f"{lamp}, {wavelength_nm:.2f} nm: "
-            f"mean={np.mean(valid_values):.3f} nm, "
-            f"median={np.median(valid_values):.3f} nm, "
-            f"valid rows={len(valid_values)}"
-        )
-
     return results
 
 def plot_empirical_fwhm(fwhm_results):
-    """ Plot measured FWHM against spatial pos """
-
+ 
     fig, ax = plt.subplots(
         figsize=(11, 7),
         constrained_layout=True
@@ -686,9 +721,6 @@ def plot_calibrated_lamp_spectra(
     profiles,
     wavelength_models
 ):
-    """
-    Plot the lamp spectra against the calibrated wavelength axis """
-
     wavelength_model = wavelength_models[
         SELECTED_POLYNOMIAL_DEGREE]["model"]
 
@@ -712,6 +744,8 @@ def plot_calibrated_lamp_spectra(
         "CO2": "tab:green",
     }
 
+    normalized_profiles = {}
+
     for name, profile in profiles.items():
         positive_profile = np.maximum(profile, 0)
 
@@ -725,6 +759,7 @@ def plot_calibrated_lamp_spectra(
         normalized_profile = (
             positive_profile / maximum
         )
+        normalized_profiles[name] = normalized_profile
 
         ax.plot(
             wavelengths_nm[display_range],
@@ -735,12 +770,12 @@ def plot_calibrated_lamp_spectra(
         )
 
     reference_lines = [
-        ("Hg 404.7 nm", 404.7),
-        ("Hg 435.8 nm", 435.8),
-        ("Hg 546.1 nm", 546.1),
-        ("Hg 577/579 nm", 578.02),
-        ("Ar 696.5 nm", 696.54),
-        ("Ar 706.7 nm", 706.72),
+        ("Hg 404.7", 404.7),
+        ("Hg 435.8", 435.8),
+        ("Hg 546.1", 546.1),
+        ("Hg 576.96 and 579.07", HG_DOUBLET_REFERENCE_NM),
+        ("Ar 696.54", 696.54),
+        ("Ar 706.72", 706.72),
     ]
 
     for label, wavelength_nm in reference_lines:
@@ -758,10 +793,10 @@ def plot_calibrated_lamp_spectra(
             1.02,
             label,
             transform=ax.get_xaxis_transform(),
-            rotation=90,
+            rotation=0,
             ha="left",
             va="bottom",
-            fontsize=8,
+            fontsize=9,
             color="0.20",
             bbox={
                 "facecolor": "white",
@@ -771,14 +806,64 @@ def plot_calibrated_lamp_spectra(
             }
         )
 
+    peak_label_offsets = {
+        "Argon": 8,
+        "Mercury": 20,
+        "CO2": 32,
+    }
+
+    for name, normalized_profile in normalized_profiles.items():
+        visible_profile = normalized_profile[display_range]
+        visible_wavelengths = wavelengths_nm[display_range]
+
+        peaks, properties = find_peaks(
+            visible_profile,
+            prominence=0.08,
+            distance=25
+        )
+
+        if peaks.size > 6:
+            strongest = np.argsort(
+                properties["prominences"]
+            )[-6:]
+            peaks = np.sort(peaks[strongest])
+
+        for peak in peaks:
+            wavelength_nm = visible_wavelengths[peak]
+            intensity = visible_profile[peak]
+
+            ax.scatter(
+                wavelength_nm,
+                intensity,
+                color=lamp_colours[name],
+                edgecolor="white",
+                linewidth=0.5,
+                s=25,
+                zorder=4
+            )
+
+            ax.annotate(
+                f"{wavelength_nm:.1f}",
+                xy=(wavelength_nm, intensity),
+                xytext=(0, peak_label_offsets[name]),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                rotation=0,
+                fontsize=13,
+                color=lamp_colours[name],
+                arrowprops={
+                    "arrowstyle": "-",
+                    "color": lamp_colours[name],
+                    "linewidth": 0.6
+                }
+            )
+
     ax.set_xlim(400, 710)
     ax.set_ylim(0, 1.18)
 
     ax.set_xlabel("Wavelength [nm]")
     ax.set_ylabel("Normalized intensity [a.u.]")
-    ax.set_title(
-        "Calibrated spectra of Hg, Ar and CO$_2$ lamps"
-    )
 
     ax.grid(
         color="0.85",
@@ -808,35 +893,14 @@ def main():
     mean_dark, dark_paths = load_mean_dark_image(
         EXPOSURE_MS
     )
-
-    print(f"\nExposure: {EXPOSURE_MS} ms")
-    print(f"Number of dark images: {len(dark_paths)}")
-    print(f"Dark-image shape: {mean_dark.shape}")
-    print(f"Mean dark level: {mean_dark.mean():.3f}")
-    print(f"Median dark level:{np.median(mean_dark):.3f}")
-
     raw_images = {}
     corrected_images = {}
 
     for name, path in LAMP_FILES.items():
         raw_image = load_image(path)
-
-        if raw_image.shape != mean_dark.shape:
-            raise ValueError(
-                f"{path.name} has shape {raw_image.shape}, "
-                f"but the dark image has shape {mean_dark.shape}"
-            )
-
         corrected_image = raw_image - mean_dark
-
         raw_images[name] = raw_image
         corrected_images[name] = corrected_image
-
-        print_img_info(
-            name,
-            raw_image,
-            corrected_image
-        )
 
     profiles = {
         name: extract_centre_profile(image)
@@ -847,13 +911,29 @@ def main():
     plot_centre_profiles(profiles)
     plot_combined_image(corrected_images)
 
-    peak_figure, detected_peaks = detect_peaks_in_profiles(
+    plot_selected_emission_lines(
         profiles
     )
-
     pixels, wavelengths, wavelength_models = (
     fit_wavelength_models(CALIBRATION_POINTS)
     )
+    selected_model = wavelength_models[
+    SELECTED_POLYNOMIAL_DEGREE
+    ]["model"]
+
+    selected_coefficients = wavelength_models[
+        SELECTED_POLYNOMIAL_DEGREE
+    ]["coefficients"]
+
+    print(
+        f"\nSelected degree-"
+        f"{SELECTED_POLYNOMIAL_DEGREE} wavelength model:"
+    )
+
+    print(selected_model)
+
+    print("\nCoefficients:")
+    print(selected_coefficients)
 
     plot_wavelength_models(
         CALIBRATION_POINTS,
@@ -863,6 +943,7 @@ def main():
     )
 
     plot_calibration_rmse(wavelength_models)
+    validate_hg_doublet(wavelength_models)
     print_theoretical_fwhm()
 
     fwhm_results = measure_empirical_fwhm(corrected_images,wavelength_models)
@@ -877,4 +958,3 @@ def main():
 if __name__ == "__main__":
     main()
     
-
