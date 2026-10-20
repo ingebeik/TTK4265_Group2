@@ -20,6 +20,7 @@ Krever: numpy, matplotlib, scikit-learn
 """
 import os
 import glob
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
@@ -62,6 +63,9 @@ FPS = 25.0            # -f
 EKSP_MS = 35.0        # -e
 DTHETA = 11.0 / 500   # vinkelstørrelse per piksel [deg] (oppgave seksjon 2.3)
 # =============================================================================
+
+# Hver kjøring lagrer figurene i en ny mappe, så ingenting overskrives
+UTMAPPE = "figurer_" + time.strftime("%Y%m%d_%H%M%S")
 
 
 def les_hdr(sti):
@@ -177,7 +181,7 @@ def mosaikk(B, sentre):
         a.set_title(f"{sentre[k]:.0f} nm (±{BW / 2:.0f} nm)")
     fig.suptitle("Spektral mosaikk (hvert bilde kontraststrukket 1–99 %)")
     fig.tight_layout()
-    fig.savefig("mosaikk.png", dpi=150)
+    fig.savefig(os.path.join(UTMAPPE, "mosaikk.png"), dpi=150)
 
 
 def rgb(B, sentre):
@@ -196,14 +200,20 @@ def rgb(B, sentre):
         ax[0, 1].set_title("Mobilbilde")
         ax[0, 1].axis("off")
     fig.tight_layout()
-    fig.savefig("rgb.png", dpi=150)
-    plt.imsave("rgb_kompositt.png", img)
+    fig.savefig(os.path.join(UTMAPPE, "rgb.png"), dpi=150)
+    plt.imsave(os.path.join(UTMAPPE, "rgb_kompositt.png"), img)
 
 
 def kmeans(B, sentre):
-    """Del 3.2: k-means på 16-bånds spekteret i hver piksel."""
+    """
+    Del 3.2: k-means på 16-bånds spekteret i hver piksel.
+    Hvert spekter deles på sitt eget gjennomsnitt før klustring, slik at
+    k-means grupperer etter spekterets FORM (materiale) og ikke etter
+    lysstyrke (sol/skygge).
+    """
     X = B.reshape(-1, B.shape[2])
-    km = KMeans(n_clusters=K, n_init=10, random_state=0).fit(X)
+    Xn = X / X.mean(axis=1, keepdims=True)              # normalisert spekter
+    km = KMeans(n_clusters=K, n_init=10, random_state=0).fit(Xn)
     etikett = km.labels_.reshape(B.shape[:2])
 
     fig, ax = plt.subplots(1, 2, figsize=(16, 5), gridspec_kw={"width_ratios": [2, 1]})
@@ -214,11 +224,11 @@ def kmeans(B, sentre):
         ax[1].plot(sentre, km.cluster_centers_[k], "o-", color=plt.cm.tab10(k),
                    label=f"klynge {k} ({np.mean(etikett == k) * 100:.0f} %)")
     ax[1].set_xlabel("bølgelengde [nm]")
-    ax[1].set_ylabel("råverdi [DN]")
-    ax[1].set_title("Klyngesentre (middelspektrum)")
+    ax[1].set_ylabel("normalisert verdi (spekter / eget snitt)")
+    ax[1].set_title("Klyngesentre (spektral form)")
     ax[1].legend()
     fig.tight_layout()
-    fig.savefig("kmeans.png", dpi=150)
+    fig.savefig(os.path.join(UTMAPPE, "kmeans.png"), dpi=150)
 
 
 if __name__ == "__main__":
@@ -227,6 +237,8 @@ if __name__ == "__main__":
     if STEG == "preview":
         preview(B, sentre)
     else:
+        os.makedirs(UTMAPPE, exist_ok=True)
+        print("Lagrer figurer i", UTMAPPE)
         mosaikk(B, sentre)
         rgb(B, sentre)
         kmeans(B, sentre)
