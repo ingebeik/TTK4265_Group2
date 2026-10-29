@@ -1,0 +1,7 @@
+# Store datafiler (lastes ned separat)
+*.h5
+
+# Python-cache
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
