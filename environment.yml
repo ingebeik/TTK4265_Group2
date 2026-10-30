@@ -1,0 +1,13 @@
+name: optiskfjernmaling
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=2.0
+  - scipy
+  - h5py
+  - matplotlib>=3.8
+  - cartopy>=0.24
+  - pyproj
+  - jupyter
+  - ipykernel
